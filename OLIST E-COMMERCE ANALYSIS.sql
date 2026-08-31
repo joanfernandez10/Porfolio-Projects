@@ -10,108 +10,84 @@
 -- on Olist?
 
 -- ============================================================
--- 01 - DATA EXPLORATION
+-- 1 - DATA EXPLORATION
 -- ============================================================
 
--- ------------------------------------------------------------
--- 1. NUMBER OF RECORDS
--- ------------------------------------------------------------
-
-SELECT 'customers' AS table_name, COUNT(*) AS records
-FROM customers
-
-UNION ALL
-
-SELECT 'geolocation', COUNT(*)
-FROM geolocation
-
-UNION ALL
-
-SELECT 'items', COUNT(*)
-FROM items
-
-UNION ALL
-
-SELECT 'orders', COUNT(*)
-FROM orders
-
-UNION ALL
-
-SELECT 'payments', COUNT(*)
-FROM payments
-
-UNION ALL
-
-SELECT 'reviews', COUNT(*)
-FROM reviews
-
-UNION ALL
-
-SELECT 'products', COUNT(*)
-FROM products
-
-UNION ALL
-
-SELECT 'sellers', COUNT(*)
-FROM sellers
-
-UNION ALL
-
-SELECT 'product_category_name_translation', COUNT(*)
-FROM product_category_name_translation
-
-ORDER BY records DESC;
-
+/* The database structure was reviewed using DB Browser for SQLite.
+ This included:
+- Tables
+- Columns
+- Data types
+- Number of records
+- Sample records
+ The following queries focus on exploratory analysis
+directly related to the business question.*/
 
 -- ------------------------------------------------------------
--- 2. REVIEW SCORE DISTRIBUTION
+-- 1.1 - REVIEW SCORE DISTRIBUTION
 -- ------------------------------------------------------------
 
 SELECT
     review_score,
     COUNT(*) AS reviews,
     ROUND(
-        COUNT(*) * 100.0 / (SELECT COUNT(*) FROM reviews),
+        COUNT(*) * 100.0 /
+        (SELECT COUNT(*) FROM reviews),
         2
     ) AS percentage
 FROM reviews
 GROUP BY review_score
 ORDER BY review_score;
 
+-- ------------------------------------------------------------
+-- 1.2 - REVIEW COVERAGE OVER TIME
+-- ------------------------------------------------------------
+
+SELECT
+    SUBSTR(review_creation_date, 1, 7) AS month,
+    COUNT(*) AS reviews
+FROM reviews
+GROUP BY month
+ORDER BY month;
 
 -- ------------------------------------------------------------
--- 3. ORDER STATUS DISTRIBUTION
+-- 1.3 - REVIEWS WITH AND WITHOUT COMMENTS
+-- ------------------------------------------------------------
+
+SELECT
+    CASE
+        WHEN review_comment_message IS NULL
+             OR TRIM(review_comment_message) = ''
+        THEN 'Without comment'
+        ELSE 'With comment'
+    END AS comment_status,
+    COUNT(*) AS reviews,
+    ROUND(
+        COUNT(*) * 100.0 /
+        (SELECT COUNT(*) FROM reviews),
+        2
+    ) AS percentage
+FROM reviews
+GROUP BY comment_status;
+
+-- ------------------------------------------------------------
+-- 1-4 - ORDER STATUS DISTRIBUTION
 -- ------------------------------------------------------------
 
 SELECT
     order_status,
     COUNT(*) AS orders,
     ROUND(
-        COUNT(*) * 100.0 / (SELECT COUNT(*) FROM orders),
+        COUNT(*) * 100.0 /
+        (SELECT COUNT(*) FROM orders),
         2
     ) AS percentage
 FROM orders
 GROUP BY order_status
 ORDER BY orders DESC;
 
-
 -- ------------------------------------------------------------
--- 4. PAYMENT TYPE DISTRIBUTION
--- ------------------------------------------------------------
-
-SELECT
-    payment_type,
-    COUNT(*) AS payments,
-    ROUND(
-        COUNT(*) * 100.0 / (SELECT COUNT(*) FROM payments),
-        2
-    ) AS percentage
-FROM payments
-GROUP BY payment_type
-ORDER BY payments DESC;
-
--- ------------------------------------------------------------
--- 5. ORDERS OVER TIME
+-- 1-5 - ORDERS OVER TIME
 -- ------------------------------------------------------------
 
 SELECT
@@ -120,38 +96,3 @@ SELECT
 FROM orders
 GROUP BY month
 ORDER BY month;
-
--- ------------------------------------------------------------
--- 6. PRICE DISTRIBUTION
--- ------------------------------------------------------------
-
-SELECT
-    MIN(price) AS min_price,
-    ROUND(AVG(price), 2) AS avg_price,
-    MAX(price) AS max_price
-FROM items;
-
--- ------------------------------------------------------------
--- 7. PRODUCT CATEGORIES
--- ------------------------------------------------------------
-
-SELECT
-    p.product_category_name,
-    COUNT(*) AS products
-FROM products p
-WHERE p.product_category_name IS NOT NULL
-GROUP BY p.product_category_name
-ORDER BY products DESC
-LIMIT 15;
-
--- ------------------------------------------------------------
--- 8. SELLER ACTIVITY
--- ------------------------------------------------------------
-
-SELECT
-    seller_id,
-    COUNT(*) AS items_sold
-FROM items
-GROUP BY seller_id
-ORDER BY items_sold DESC
-LIMIT 15;
