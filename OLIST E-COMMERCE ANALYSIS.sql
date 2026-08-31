@@ -386,3 +386,33 @@ FROM items i
 LEFT JOIN sellers s
     ON i.seller_id = s.seller_id
 WHERE s.seller_id IS NULL;
+
+-- ============================================================
+-- DATA QUALITY FINDINGS
+-- ============================================================
+
+ /* 
+   789 review IDs are associated with multiple orders,
+   representing approximately 0.8% of all review IDs.
+   These are not exact duplicates, as each occurrence is
+   associated with a different order_id. They will be retained
+   in the raw data.
+
+   23 orders have a customer delivery date earlier than the
+   carrier delivery date, representing approximately 0.023%
+   of all orders. These records will be retained and their
+   impact will be considered when calculating delivery metrics.
+
+   8 orders marked as "delivered" have no customer delivery date,
+   while 6 orders marked as "canceled" have a customer delivery
+   date. These cases will be retained for further analysis.
+
+   610 products have no product category. This may limit the
+   use of product category as an explanatory variable for some
+   observations.
+
+   4 products contain invalid dimensions
+   (weight, length, height or width <= 0).
+   These records will be reviewed before using product dimensions
+   in the analysis.
+*/
