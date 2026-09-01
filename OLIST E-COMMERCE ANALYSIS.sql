@@ -432,6 +432,9 @@ WHERE s.seller_id IS NULL;
    functions generally ignore NULL values by default.
 */
 
+-- ============================================================
+-- 3 - DATA ANALYSIS
+-- ============================================================
 
 /*
    Notas de compatibilidad SQLite:
@@ -448,7 +451,7 @@ WHERE s.seller_id IS NULL;
    ===================================================================== */
 
 /* ---------------------------------------------------------------------
-   1. TIEMPO DE ENTREGA vs REVIEW SCORE
+   3.1- TIEMPO DE ENTREGA vs REVIEW SCORE
    Hipótesis: pedidos que tardan más en llegar reciben peores reviews.
 --------------------------------------------------------------------- */
 WITH orders_delivery AS (
@@ -472,9 +475,8 @@ JOIN reviews r ON r.order_id = d.order_id
 GROUP BY r.review_score
 ORDER BY r.review_score;
 
-
 /* ---------------------------------------------------------------------
-   1.b LLEGÓ TARDE vs A TIEMPO — comparación directa
+   3.1.2 LLEGÓ TARDE vs A TIEMPO — comparación directa
 --------------------------------------------------------------------- */
 WITH orders_delivery AS (
     SELECT
@@ -499,9 +501,8 @@ JOIN reviews r ON r.order_id = d.order_id
 GROUP BY d.delivery_status
 ORDER BY avg_review_score;
 
-
 /* ---------------------------------------------------------------------
-   2. COSTO DE FLETE (freight_value) vs REVIEW SCORE
+   3.2 - COSTO DE FLETE (freight_value) vs REVIEW SCORE
 --------------------------------------------------------------------- */
 WITH order_freight AS (
     SELECT
@@ -524,9 +525,8 @@ JOIN reviews r ON r.order_id = f.order_id
 GROUP BY r.review_score
 ORDER BY r.review_score;
 
-
 /* ---------------------------------------------------------------------
-   3. CATEGORÍA DE PRODUCTO vs REVIEW SCORE
+   3.3 - CATEGORÍA DE PRODUCTO vs REVIEW SCORE
    Top categorías con peor score promedio (mínimo 50 reviews).
 --------------------------------------------------------------------- */
 SELECT
@@ -547,9 +547,8 @@ HAVING COUNT(*) >= 50
 ORDER BY avg_review_score ASC
 LIMIT 15;
 
-
 /* ---------------------------------------------------------------------
-   4. MÉTODO DE PAGO Y CUOTAS vs REVIEW SCORE
+   3.4 - MÉTODO DE PAGO Y CUOTAS vs REVIEW SCORE
 --------------------------------------------------------------------- */
 SELECT
     pay.payment_type,
@@ -576,9 +575,8 @@ JOIN reviews r ON r.order_id = pay.order_id
 GROUP BY installment_bucket
 ORDER BY avg_review_score;
 
-
 /* ---------------------------------------------------------------------
-   5. VALOR DEL PEDIDO vs REVIEW SCORE
+   3.5 - VALOR DEL PEDIDO vs REVIEW SCORE
 --------------------------------------------------------------------- */
 WITH order_value AS (
     SELECT
@@ -601,9 +599,8 @@ JOIN reviews r ON r.order_id = v.order_id
 GROUP BY price_bucket
 ORDER BY avg_review_score;
 
-
 /* ---------------------------------------------------------------------
-   6. DESEMPEÑO POR VENDEDOR (seller)
+   3.6 - DESEMPEÑO POR VENDEDOR (seller)
    Vendedores con más de 20 ventas, ordenados por peor score promedio.
 --------------------------------------------------------------------- */
 SELECT
@@ -619,9 +616,8 @@ HAVING COUNT(DISTINCT oi.order_id) >= 20
 ORDER BY avg_review_score ASC
 LIMIT 20;
 
-
 /* ---------------------------------------------------------------------
-   7. DISTANCIA GEOGRÁFICA (estado comprador != estado vendedor)
+   3.7 - DISTANCIA GEOGRÁFICA (estado comprador != estado vendedor)
 --------------------------------------------------------------------- */
 WITH order_states AS (
     SELECT
@@ -644,47 +640,130 @@ JOIN reviews r ON r.order_id = os.order_id
 GROUP BY os.route_type
 ORDER BY avg_review_score;
 
+/* ---------------------------------------------------------------------
+   3.8 - % DE ENTREGAS TARDÍAS SOBRE EL TOTAL
+   Base: todos los pedidos con status 'delivered' y fecha de entrega
+   registrada.
+--------------------------------------------------------------------- */
+SELECT
+    COUNT(*) AS total_pedidos_entregados,
+    SUM(CASE
+            WHEN julianday(order_delivered_customer_date) > julianday(order_estimated_delivery_date)
+            THEN 1 ELSE 0
+        END) AS pedidos_tardios,
+    ROUND(100.0 * SUM(CASE
+            WHEN julianday(order_delivered_customer_date) > julianday(order_estimated_delivery_date)
+            THEN 1 ELSE 0
+        END) / COUNT(*), 2) AS pct_entregas_tardias
+FROM orders
+WHERE order_status = 'delivered'
+  AND order_delivered_customer_date IS NOT NULL
+  AND order_estimated_delivery_date IS NOT NULL;
 
 /* ---------------------------------------------------------------------
-   8. RESUMEN MULTIFACTOR
-   Une los factores más relevantes en una sola tabla por pedido, para
-   exportar (.mode csv / .output archivo.csv en la CLI de SQLite) y
-   graficar en Python/Tableau/PowerBI.
+   3.9 - % DE MALAS RESEÑAS (score 1 o 2) POR CATEGORÍA DE PRODUCTO
+   Mínimo 30 reseñas por categoría para evitar ruido de categorías
+   con pocos casos.
 --------------------------------------------------------------------- */
-WITH order_base AS (
+SELECT
+    COALESCE(t.product_category_name_english, p.product_category_name) AS categoria,
+    COUNT(*) AS total_reviews,
+    SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) AS malas_reviews,
+    ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
+        AS pct_malas_reviews
+FROM items i
+JOIN products p
+    ON p.product_id = i.product_id
+LEFT JOIN product_category_name_translation t
+    ON t.product_category_name = p.product_category_name
+JOIN reviews r
+    ON r.order_id = i.order_id
+GROUP BY categoria
+HAVING COUNT(*) >= 30
+ORDER BY pct_malas_reviews DESC;
+
+/* ---------------------------------------------------------------------
+   3.10 - DE LAS RESEÑAS NEGATIVAS (score 1 o 2), ¿QUÉ % TUVO UN TIEMPO DE
+   ENTREGA MAYOR AL TIEMPO DE ENTREGA PROMEDIO?
+   Definición: "tiempo de entrega" = días entre la compra
+   (order_purchase_timestamp) y la entrega real al cliente
+   (order_delivered_customer_date). NO es contra la fecha estimada,
+   es el tiempo real que tardó en llegar.
+   El promedio se calcula sobre TODOS los pedidos entregados (no solo
+   los negativos), para tener un benchmark general contra el cual
+   comparar.
+--------------------------------------------------------------------- */
+WITH tiempos_entrega AS (
     SELECT
         o.order_id,
-        CASE
-            WHEN julianday(o.order_delivered_customer_date) > julianday(o.order_estimated_delivery_date)
-                THEN 1 ELSE 0
-        END AS is_late
+        julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp)
+            AS delivery_days
     FROM orders o
     WHERE o.order_status = 'delivered'
       AND o.order_delivered_customer_date IS NOT NULL
 ),
-order_items_agg AS (
+promedio_general AS (
+    SELECT AVG(delivery_days) AS avg_delivery_days FROM tiempos_entrega
+)
+SELECT
+    (SELECT ROUND(avg_delivery_days, 2) FROM promedio_general) AS tiempo_entrega_promedio_dias,
+    COUNT(*) AS total_reseñas_negativas,
+    SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
+        AS negativas_con_demora_mayor_al_promedio,
+    ROUND(100.0 * SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
+          / COUNT(*), 2) AS pct_negativas_con_demora_mayor
+FROM tiempos_entrega te
+JOIN reviews r ON r.order_id = te.order_id
+WHERE r.review_score <= 2;
+ 
+-- 3.10.b) Mismo cálculo pero desagregado por cada score (1 a 5), para
+-- ver la tendencia completa y no solo el bloque "negativas".
+
+WITH tiempos_entrega AS (
     SELECT
-        order_id,
-        COUNT(*)                                                          AS n_items,
-        SUM(price)                                                        AS total_price,
-        SUM(freight_value)                                                AS total_freight,
-        ROUND(SUM(freight_value) / NULLIF(CAST(SUM(price) AS REAL), 0), 3) AS freight_ratio
-    FROM items
-    GROUP BY order_id
+        o.order_id,
+        julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp)
+            AS delivery_days
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+),
+promedio_general AS (
+    SELECT AVG(delivery_days) AS avg_delivery_days FROM tiempos_entrega
 )
 SELECT
     r.review_score,
-    ob.is_late,
-    oia.n_items,
-    oia.total_price,
-    oia.freight_ratio
-FROM order_base ob
-JOIN order_items_agg oia ON oia.order_id = ob.order_id
-JOIN reviews r ON r.order_id = ob.order_id;
--- Tip: en la CLI de SQLite podés exportar esto directo a CSV con:
---   .headers on
---   .mode csv
---   .output resumen_multifactor.csv
---   (pegá aquí el SELECT de arriba)
---   .output stdout
+    COUNT(*) AS total_pedidos,
+    ROUND(AVG(te.delivery_days), 2) AS tiempo_entrega_promedio_del_score,
+    SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
+        AS pedidos_sobre_el_promedio,
+    ROUND(100.0 * SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
+          / COUNT(*), 2) AS pct_sobre_el_promedio
+FROM tiempos_entrega te
+JOIN reviews r ON r.order_id = te.order_id
+GROUP BY r.review_score
+ORDER BY r.review_score;
 
+/* ---------------------------------------------------------------------
+   3.11 - DEL TOTAL DE ENTREGAS TARDÍAS (fecha real > fecha estimada),
+   ¿QUÉ % LE CORRESPONDE A CADA CALIFICACIÓN (1 a 5 estrellas)?
+   Acá la base 100% es el total de entregas tardías, y repartimos
+   ese 100% entre los distintos review_score.
+--------------------------------------------------------------------- */
+WITH entregas_tardias AS (
+    SELECT o.order_id
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+      AND o.order_estimated_delivery_date IS NOT NULL
+      AND julianday(o.order_delivered_customer_date) > julianday(o.order_estimated_delivery_date)
+)
+SELECT
+    r.review_score,
+    COUNT(*) AS cantidad_entregas_tardias,
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM entregas_tardias), 2)
+        AS pct_sobre_total_entregas_tardias
+FROM entregas_tardias et
+JOIN reviews r ON r.order_id = et.order_id
+GROUP BY r.review_score
+ORDER BY r.review_score;
