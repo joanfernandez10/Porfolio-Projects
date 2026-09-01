@@ -126,10 +126,6 @@ ORDER BY month;
 */ 
 
 -- ============================================================
--- DATA QUALITY FINDINGS
--- ============================================================
-
--- ============================================================
 -- 2 - DATA QUALITY CHECK
 -- ============================================================
 
@@ -259,7 +255,6 @@ SELECT
         (SELECT COUNT(DISTINCT review_id) FROM reviews),
         2
     ) AS percentage_repeated_reviews,
-
     SUM(
         CASE
             WHEN review_score IN (1, 2)
@@ -267,7 +262,6 @@ SELECT
             ELSE 0
         END
     ) AS repeated_poor_reviews,
-
     ROUND(
         SUM(
             CASE
@@ -279,7 +273,6 @@ SELECT
         (SELECT COUNT(DISTINCT review_id) FROM reviews),
         2
     ) AS percentage_poor_repeated_reviews
-
 FROM repeated_reviews;
 
 -- ------------------------------------------------------------
@@ -299,7 +292,6 @@ FROM orders;
 -- ------------------------------------------------------------
 
 -- Delivery before purchase
-
 SELECT
     order_id,
     order_purchase_timestamp,
@@ -309,7 +301,6 @@ WHERE order_delivered_customer_date IS NOT NULL
   AND order_delivered_customer_date < order_purchase_timestamp;
 
 -- Delivery before carrier shipment
-
 SELECT
     order_id,
     order_delivered_carrier_date,
@@ -368,14 +359,12 @@ FROM products;
 -- ------------------------------------------------------------
 
 -- Negative or zero prices
-
 SELECT
     COUNT(*) AS invalid_prices
 FROM items
 WHERE price <= 0;
 
 -- Invalid product dimensions
-
 SELECT
     COUNT(*) AS invalid_dimensions
 FROM products
@@ -389,7 +378,6 @@ WHERE product_weight_g <= 0
 -- ------------------------------------------------------------
 
 -- Reviews without a matching order
-
 SELECT
     r.review_id,
     r.order_id
@@ -398,9 +386,7 @@ LEFT JOIN orders o
     ON r.order_id = o.order_id
 WHERE o.order_id IS NULL;
 
-
 -- Items without a matching product
-
 SELECT
     i.order_id,
     i.product_id
@@ -419,36 +405,28 @@ LEFT JOIN sellers s
     ON i.seller_id = s.seller_id
 WHERE s.seller_id IS NULL;
 
--- ============================================================
--- DATA QUALITY FINDINGS
--- ============================================================
+/* ============================================================
+   DATA QUALITY FINDINGS
+   ============================================================
 
- /* 
-   789 review IDs are associated with multiple orders,
-   representing approximately 0.8% of all review IDs.
-   These are not exact duplicates, as each occurrence is
-   associated with a different order_id. They will be retained
-   in the raw data.
+   789 review IDs are associated with multiple orders
+   (approximately 0.8% of all review IDs). These are not
+   exact duplicates and will be retained.
 
    23 orders have a customer delivery date earlier than the
-   carrier delivery date, representing approximately 0.023%
-   of all orders. These records will be retained and their
-   impact will be considered when calculating delivery metrics.
+   carrier delivery date (0.023% of orders). These records
+   will be retained and considered when analyzing delivery time.
 
-   8 orders marked as "delivered" have no customer delivery date,
-   while 6 orders marked as "canceled" have a customer delivery
-   date. These cases will be retained for further analysis.
+   8 delivered orders have no customer delivery date, while
+   6 canceled orders have a delivery date. These cases will
+   be retained for further analysis.
 
-   610 products have no product category. This may limit the
-   use of product category as an explanatory variable for some
-   observations.
+   610 products have no category, which may limit category-based
+   analysis for these observations.
 
-   4 products contain invalid dimensions
-   (weight, length, height or width <= 0).
-   These records will be reviewed before using product dimensions
-   in the analysis.
+   4 products contain invalid dimensions and will be excluded
+   when product dimensions are used.
 */
-
 
 
 /*
