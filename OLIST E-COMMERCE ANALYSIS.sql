@@ -39,6 +39,8 @@ FROM reviews
 GROUP BY review_score
 ORDER BY review_score;
 
+![Resultados](images/1.bmp)
+
 -- ------------------------------------------------------------
 -- 1.2 - REVIEW COVERAGE OVER TIME
 -- ------------------------------------------------------------
