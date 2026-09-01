@@ -1,7 +1,7 @@
 /* =====================================================================
    OLIST BRAZILIAN E-COMMERCE — ¿Qué factores se asocian a malas reviews?
    =====================================================================
-   Dataset: [https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
+   Dataset: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce [LINK](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
    Dialecto: SQLite 3.25+ (usa funciones de ventana y julianday())
 
    Tablas usadas (nombres tal como fueron importados en este proyecto):
