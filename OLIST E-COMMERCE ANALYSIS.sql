@@ -767,3 +767,91 @@ FROM entregas_tardias et
 JOIN reviews r ON r.order_id = et.order_id
 GROUP BY r.review_score
 ORDER BY r.review_score;
+
+
+/* ============================================================
+   3 - DATA ANALYSIS — KEY FINDINGS
+   ============================================================
+
+   The analysis evaluated several factors that could be associated
+   with poor customer reviews, distinguishing between factors that
+   are within Olist's influence and those that depend primarily on
+   the characteristics of the product, seller, or customer.
+
+   Among the factors outside Olist's direct control, some product
+   categories and sellers show relatively high proportions of poor
+   ratings. For example, certain categories, such as office products
+   and men's clothing, have poor-rating shares of approximately
+   26-27%. However, neither individual categories nor sellers
+   represent a sufficiently large share of total orders to have a
+   significant impact on the overall rate of negative reviews.
+
+   Product price shows a weak association with customer satisfaction,
+   as higher-priced products tend to receive lower average ratings.
+   Purchases above $300 have an average rating of 3.96, compared
+   with 4.17 for purchases below $50. This may reflect higher customer
+   expectations associated with more expensive purchases, making
+   dissatisfaction more pronounced when the product does not meet
+   those expectations.
+
+   Geographical distance between the seller and the customer also
+   shows a negative association with ratings, although the difference
+   is relatively small. A possible explanation is that greater
+   distances tend to increase delivery times. However, distance itself
+   does not appear to be a major driver of poor reviews.
+
+   Among the factors more directly influenced by Olist, freight costs
+   and payment methods show little association with review scores.
+   The number of installments presents a counterintuitive negative
+   relationship with ratings: purchases made in more installments
+   tend to receive lower scores. However, this relationship is likely
+   partly explained by the higher prices of products purchased through
+   installments rather than by the payment method itself.
+
+
+   ------------------------------------------------------------
+   DELIVERY TIME AS A KEY FACTOR
+   ------------------------------------------------------------
+
+   Delivery performance emerges as the most relevant factor
+   identified in the analysis.
+
+   Approximately 8.11% of deliveries occurred after the estimated
+   delivery date, and only 34% of these late deliveries received a
+   4- or 5-star rating. However, because late deliveries represent
+   a relatively small proportion of total orders, they do not
+   explain the majority of poor reviews by themselves.
+
+   An even more important finding is that approximately 60% of
+   negative reviews were associated with deliveries that took longer
+   than the average delivery time. This suggests that customer
+   dissatisfaction is not limited to deliveries that formally exceed
+   the estimated deadline.
+
+   Longer delivery times appear to affect customer satisfaction even
+   when the order is technically delivered within the promised
+   timeframe.
+
+   ------------------------------------------------------------
+   CONCLUSION
+   ------------------------------------------------------------
+
+   Overall, the analysis suggests that several factors are associated
+   with customer satisfaction, but most have either a relatively small
+   effect or are outside Olist's direct control.
+
+   Among the factors Olist can influence, delivery time stands out
+   as the clearest opportunity for improvement. Reducing average
+   delivery times could improve customer satisfaction even without
+   focusing exclusively on eliminating deliveries that exceed the
+   estimated deadline.
+
+   This is particularly relevant to Olist's business model, which
+   coordinates transactions and logistics between a large number of
+   independent sellers and customers across a geographically extensive
+   market.
+
+   Therefore, improving logistics efficiency and reducing delivery
+   times may be one of the most effective ways for Olist to improve
+   the customer experience and, consequently, review scores.
+*/
