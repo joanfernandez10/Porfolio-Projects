@@ -1,13 +1,20 @@
--- ============================================================
--- OLIST E-COMMERCE ANALYSIS
--- ============================================================
+/* =====================================================================
+   OLIST BRAZILIAN E-COMMERCE — ¿Qué factores se asocian a malas reviews?
+   =====================================================================
+   Dataset: [https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce](https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce)
+   Dialecto: SQLite 3.25+ (usa funciones de ventana y julianday())
 
--- ============================================================
--- BUSINESS QUESTION
--- ============================================================
-
--- What factors are associated with poor customer reviews
--- on Olist?
+   Tablas usadas (nombres tal como fueron importados en este proyecto):
+     customers    -> olist_customers_dataset.csv
+     orders       -> olist_orders_dataset.csv
+     items        -> olist_order_items_dataset.csv
+     payments     -> olist_order_payments_dataset.csv
+     reviews      -> olist_order_reviews_dataset.csv
+     products     -> olist_products_dataset.csv
+     sellers      -> olist_sellers_dataset.csv
+     geolocation  -> olist_geolocation_dataset.csv
+     product_category_name_translation
+   ===================================================================== */
 
 -- ============================================================
 -- 1 - DATA EXPLORATION
@@ -431,3 +438,19 @@ WHERE s.seller_id IS NULL;
    These records will be reviewed before using product dimensions
    in the analysis.
 */
+
+
+
+/*
+   Notas de compatibilidad SQLite:
+     - No existe EXTRACT(); las diferencias de fecha se calculan con
+       julianday(fecha_a) - julianday(fecha_b), que devuelve días
+       (con decimales) directamente.
+     - Los campos de fecha del CSV deben quedar como TEXT en formato
+       'YYYY-MM-DD HH:MM:SS' para que julianday() los interprete bien.
+     - CAST(... AS REAL) se usa para evitar división entera.
+
+   Definición de trabajo:
+     "Mala review" = review_score IN (1, 2)
+     "Buena review" = review_score IN (4, 5)
+   ===================================================================== */
