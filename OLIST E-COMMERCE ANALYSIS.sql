@@ -46,8 +46,6 @@ FROM reviews
 GROUP BY review_score
 ORDER BY review_score;
 
-![Resultados](Porfolio-Projects/images/1.bmp)
-
 -- ------------------------------------------------------------
 -- 1.2 - REVIEW COVERAGE OVER TIME
 -- ------------------------------------------------------------
@@ -110,10 +108,22 @@ ORDER BY month;
    EXPLORATION FINDINGS
    ============================================================
 
-Las tablas están muy bien integradas 
+   Reviews are strongly concentrated in positive ratings:
+   5 stars: 57.78% | 4 stars: 19.29% | 3 stars: 8.24%
+   2 stars: 3.18%  | 1 star: 11.51%
 
+   1- and 2-star reviews account for 14.69% of all reviews
+   and will be the main focus of the analysis.
 
+   Most reviews do not contain written comments, so review
+   scores will be the primary measure of customer satisfaction,
+   with comments used to investigate the reasons behind poor
+   ratings.
 
+   Most orders are delivered, and order activity varies over
+   time, allowing delivery-related factors and temporal patterns
+   to be investigated.
+*/ 
 
 -- ============================================================
 -- DATA QUALITY FINDINGS
