@@ -426,6 +426,10 @@ WHERE s.seller_id IS NULL;
 
    4 products contain invalid dimensions and will be excluded
    when product dimensions are used.
+
+   Some variables contain a non-negligible number of missing
+   values. These observations will be retained, as SQL aggregate
+   functions generally ignore NULL values by default.
 */
 
 
@@ -442,3 +446,245 @@ WHERE s.seller_id IS NULL;
      "Mala review" = review_score IN (1, 2)
      "Buena review" = review_score IN (4, 5)
    ===================================================================== */
+
+/* ---------------------------------------------------------------------
+   1. TIEMPO DE ENTREGA vs REVIEW SCORE
+   Hipótesis: pedidos que tardan más en llegar reciben peores reviews.
+--------------------------------------------------------------------- */
+WITH orders_delivery AS (
+    SELECT
+        o.order_id,
+        julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp)
+            AS delivery_days,
+        julianday(o.order_delivered_customer_date) - julianday(o.order_estimated_delivery_date)
+            AS delay_days   -- positivo = llegó tarde respecto a lo estimado
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+)
+SELECT
+    r.review_score,
+    ROUND(AVG(d.delivery_days), 1) AS avg_delivery_days,
+    ROUND(AVG(d.delay_days), 1)    AS avg_delay_vs_estimate,
+    COUNT(*)                       AS n_orders
+FROM orders_delivery d
+JOIN reviews r ON r.order_id = d.order_id
+GROUP BY r.review_score
+ORDER BY r.review_score;
+
+
+/* ---------------------------------------------------------------------
+   1.b LLEGÓ TARDE vs A TIEMPO — comparación directa
+--------------------------------------------------------------------- */
+WITH orders_delivery AS (
+    SELECT
+        o.order_id,
+        CASE
+            WHEN julianday(o.order_delivered_customer_date) > julianday(o.order_estimated_delivery_date)
+                THEN 'Entrega tardía'
+            ELSE 'Entrega a tiempo'
+        END AS delivery_status
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+)
+SELECT
+    d.delivery_status,
+    ROUND(AVG(r.review_score), 2) AS avg_review_score,
+    ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
+        AS pct_malas_reviews,
+    COUNT(*) AS n_orders
+FROM orders_delivery d
+JOIN reviews r ON r.order_id = d.order_id
+GROUP BY d.delivery_status
+ORDER BY avg_review_score;
+
+
+/* ---------------------------------------------------------------------
+   2. COSTO DE FLETE (freight_value) vs REVIEW SCORE
+--------------------------------------------------------------------- */
+WITH order_freight AS (
+    SELECT
+        oi.order_id,
+        SUM(oi.price) AS total_price,
+        SUM(oi.freight_value) AS total_freight,
+        ROUND(SUM(oi.freight_value) / NULLIF(CAST(SUM(oi.price) AS REAL), 0), 3)
+            AS freight_ratio
+    FROM items oi
+    GROUP BY oi.order_id
+)
+SELECT
+    r.review_score,
+    ROUND(AVG(f.total_price), 2)   AS avg_price,
+    ROUND(AVG(f.total_freight), 2) AS avg_freight,
+    ROUND(AVG(f.freight_ratio), 3) AS avg_freight_ratio,
+    COUNT(*)                       AS n_orders
+FROM order_freight f
+JOIN reviews r ON r.order_id = f.order_id
+GROUP BY r.review_score
+ORDER BY r.review_score;
+
+
+/* ---------------------------------------------------------------------
+   3. CATEGORÍA DE PRODUCTO vs REVIEW SCORE
+   Top categorías con peor score promedio (mínimo 50 reviews).
+--------------------------------------------------------------------- */
+SELECT
+    COALESCE(t.product_category_name_english, p.product_category_name) AS category,
+    ROUND(AVG(r.review_score), 2) AS avg_review_score,
+    ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
+        AS pct_malas_reviews,
+    COUNT(*) AS n_reviews
+FROM items oi
+JOIN products p
+    ON p.product_id = oi.product_id
+LEFT JOIN product_category_name_translation t
+    ON t.product_category_name = p.product_category_name
+JOIN reviews r
+    ON r.order_id = oi.order_id
+GROUP BY category
+HAVING COUNT(*) >= 50
+ORDER BY avg_review_score ASC
+LIMIT 15;
+
+
+/* ---------------------------------------------------------------------
+   4. MÉTODO DE PAGO Y CUOTAS vs REVIEW SCORE
+--------------------------------------------------------------------- */
+SELECT
+    pay.payment_type,
+    ROUND(AVG(pay.payment_installments), 1) AS avg_installments,
+    ROUND(AVG(r.review_score), 2)           AS avg_review_score,
+    COUNT(*)                                AS n_orders
+FROM payments pay
+JOIN reviews r ON r.order_id = pay.order_id
+GROUP BY pay.payment_type
+ORDER BY avg_review_score;
+
+-- Cuotas agrupadas en rangos
+SELECT
+    CASE
+        WHEN payment_installments = 1 THEN '1 (contado)'
+        WHEN payment_installments BETWEEN 2 AND 4 THEN '2-4 cuotas'
+        WHEN payment_installments BETWEEN 5 AND 8 THEN '5-8 cuotas'
+        ELSE '9+ cuotas'
+    END AS installment_bucket,
+    ROUND(AVG(r.review_score), 2) AS avg_review_score,
+    COUNT(*)                      AS n_orders
+FROM payments pay
+JOIN reviews r ON r.order_id = pay.order_id
+GROUP BY installment_bucket
+ORDER BY avg_review_score;
+
+
+/* ---------------------------------------------------------------------
+   5. VALOR DEL PEDIDO vs REVIEW SCORE
+--------------------------------------------------------------------- */
+WITH order_value AS (
+    SELECT
+        order_id,
+        SUM(price) AS total_price
+    FROM items
+    GROUP BY order_id
+)
+SELECT
+    CASE
+        WHEN v.total_price < 50  THEN '< R$50'
+        WHEN v.total_price < 150 THEN 'R$50-150'
+        WHEN v.total_price < 300 THEN 'R$150-300'
+        ELSE '> R$300'
+    END AS price_bucket,
+    ROUND(AVG(r.review_score), 2) AS avg_review_score,
+    COUNT(*)                      AS n_orders
+FROM order_value v
+JOIN reviews r ON r.order_id = v.order_id
+GROUP BY price_bucket
+ORDER BY avg_review_score;
+
+
+/* ---------------------------------------------------------------------
+   6. DESEMPEÑO POR VENDEDOR (seller)
+   Vendedores con más de 20 ventas, ordenados por peor score promedio.
+--------------------------------------------------------------------- */
+SELECT
+    oi.seller_id,
+    COUNT(DISTINCT oi.order_id)   AS n_orders,
+    ROUND(AVG(r.review_score), 2) AS avg_review_score,
+    ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
+        AS pct_malas_reviews
+FROM items oi
+JOIN reviews r ON r.order_id = oi.order_id
+GROUP BY oi.seller_id
+HAVING COUNT(DISTINCT oi.order_id) >= 20
+ORDER BY avg_review_score ASC
+LIMIT 20;
+
+
+/* ---------------------------------------------------------------------
+   7. DISTANCIA GEOGRÁFICA (estado comprador != estado vendedor)
+--------------------------------------------------------------------- */
+WITH order_states AS (
+    SELECT
+        o.order_id,
+        CASE WHEN c.customer_state = s.seller_state
+             THEN 'Mismo estado'
+             ELSE 'Estados distintos'
+        END AS route_type
+    FROM orders o
+    JOIN customers c ON c.customer_id = o.customer_id
+    JOIN items oi ON oi.order_id = o.order_id
+    JOIN sellers s ON s.seller_id = oi.seller_id
+)
+SELECT
+    os.route_type,
+    ROUND(AVG(r.review_score), 2) AS avg_review_score,
+    COUNT(DISTINCT os.order_id)   AS n_orders
+FROM order_states os
+JOIN reviews r ON r.order_id = os.order_id
+GROUP BY os.route_type
+ORDER BY avg_review_score;
+
+
+/* ---------------------------------------------------------------------
+   8. RESUMEN MULTIFACTOR
+   Une los factores más relevantes en una sola tabla por pedido, para
+   exportar (.mode csv / .output archivo.csv en la CLI de SQLite) y
+   graficar en Python/Tableau/PowerBI.
+--------------------------------------------------------------------- */
+WITH order_base AS (
+    SELECT
+        o.order_id,
+        CASE
+            WHEN julianday(o.order_delivered_customer_date) > julianday(o.order_estimated_delivery_date)
+                THEN 1 ELSE 0
+        END AS is_late
+    FROM orders o
+    WHERE o.order_status = 'delivered'
+      AND o.order_delivered_customer_date IS NOT NULL
+),
+order_items_agg AS (
+    SELECT
+        order_id,
+        COUNT(*)                                                          AS n_items,
+        SUM(price)                                                        AS total_price,
+        SUM(freight_value)                                                AS total_freight,
+        ROUND(SUM(freight_value) / NULLIF(CAST(SUM(price) AS REAL), 0), 3) AS freight_ratio
+    FROM items
+    GROUP BY order_id
+)
+SELECT
+    r.review_score,
+    ob.is_late,
+    oia.n_items,
+    oia.total_price,
+    oia.freight_ratio
+FROM order_base ob
+JOIN order_items_agg oia ON oia.order_id = ob.order_id
+JOIN reviews r ON r.order_id = ob.order_id;
+-- Tip: en la CLI de SQLite podés exportar esto directo a CSV con:
+--   .headers on
+--   .mode csv
+--   .output resumen_multifactor.csv
+--   (pegá aquí el SELECT de arriba)
+--   .output stdout
+
