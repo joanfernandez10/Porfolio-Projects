@@ -855,3 +855,134 @@ ORDER BY r.review_score;
    times may be one of the most effective ways for Olist to improve
    the customer experience and, consequently, review scores.
 */
+
+
+
+/* Optional:
+/* =====================================================================
+   EXPORT PARA POWER BI Y PYTHON— Olist (SQLite)
+   Una fila por pedido, con todas las dimensiones/métricas necesarias
+   para armar un dashboard o hacer análisis más detallados: fechas, 
+   entrega, precio, flete, categoría principal, pago, geografía y 
+   review score.
+   ===================================================================== */
+
+WITH order_items_agg AS (
+    /* Métricas agregadas del pedido a nivel ítem */
+    SELECT
+        order_id,
+        COUNT(*)                                                          AS n_items,
+        COUNT(DISTINCT seller_id)                                         AS n_sellers,
+        SUM(price)                                                        AS total_price,
+        SUM(freight_value)                                                AS total_freight,
+        ROUND(SUM(freight_value) / NULLIF(CAST(SUM(price) AS REAL), 0), 3) AS freight_ratio
+    FROM items
+    GROUP BY order_id
+),
+main_item AS (
+    /* El ítem de mayor precio del pedido, usado como "producto principal"
+       para asignar una categoría y un vendedor de referencia cuando el
+       pedido tiene varios ítems distintos */
+    SELECT order_id, product_id, seller_id
+    FROM (
+        SELECT
+            i.order_id,
+            i.product_id,
+            i.seller_id,
+            ROW_NUMBER() OVER (PARTITION BY i.order_id ORDER BY i.price DESC) AS rn
+        FROM items i
+    )
+    WHERE rn = 1
+),
+category_por_pedido AS (
+    SELECT
+        mi.order_id,
+        COALESCE(t.product_category_name_english, p.product_category_name) AS main_category
+    FROM main_item mi
+    JOIN products p ON p.product_id = mi.product_id
+    LEFT JOIN product_category_name_translation t
+        ON t.product_category_name = p.product_category_name
+),
+seller_por_pedido AS (
+    SELECT
+        mi.order_id,
+        s.seller_state AS main_seller_state
+    FROM main_item mi
+    JOIN sellers s ON s.seller_id = mi.seller_id
+),
+pagos_por_pedido AS (
+    /* Un pedido puede tener varias filas de pago (ej. tarjeta + voucher).
+       Nos quedamos con el tipo de pago de mayor monto como "principal",
+       y sumamos el total pagado y el máximo de cuotas usado. */
+    SELECT
+        order_id,
+        SUM(payment_value)      AS total_payment_value,
+        MAX(payment_installments) AS max_installments
+    FROM payments
+    GROUP BY order_id
+),
+tipo_pago_principal AS (
+    SELECT order_id, payment_type
+    FROM (
+        SELECT
+            order_id,
+            payment_type,
+            ROW_NUMBER() OVER (PARTITION BY order_id ORDER BY payment_value DESC) AS rn
+        FROM payments
+    )
+    WHERE rn = 1
+),
+base_pedido AS (
+    SELECT
+        o.order_id,
+        DATE(o.order_purchase_timestamp)                     AS purchase_date,
+        strftime('%Y-%m', o.order_purchase_timestamp)        AS purchase_year_month,
+        o.order_status,
+        c.customer_state,
+        CASE
+            WHEN o.order_delivered_customer_date IS NULL THEN NULL
+            ELSE ROUND(julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp), 1)
+        END AS delivery_days,
+        CASE
+            WHEN o.order_delivered_customer_date IS NULL OR o.order_estimated_delivery_date IS NULL THEN NULL
+            ELSE ROUND(julianday(o.order_delivered_customer_date) - julianday(o.order_estimated_delivery_date), 1)
+        END AS delay_vs_estimate_days,
+        CASE
+            WHEN o.order_delivered_customer_date IS NULL OR o.order_estimated_delivery_date IS NULL THEN NULL
+            WHEN julianday(o.order_delivered_customer_date) > julianday(o.order_estimated_delivery_date) THEN 1
+            ELSE 0
+        END AS is_late
+    FROM orders o
+    JOIN customers c ON c.customer_id = o.customer_id
+)
+SELECT
+    b.order_id,
+    b.purchase_date,
+    b.purchase_year_month,
+    b.order_status,
+    r.review_score,
+    b.is_late,
+    b.delivery_days,
+    b.delay_vs_estimate_days,
+    oia.n_items,
+    oia.n_sellers,
+    oia.total_price,
+    oia.total_freight,
+    oia.freight_ratio,
+    pp.total_payment_value,
+    pp.max_installments,
+    tpp.payment_type,
+    cp.main_category,
+    b.customer_state,
+    sp.main_seller_state,
+    CASE WHEN b.customer_state = sp.main_seller_state THEN 'Mismo estado' ELSE 'Estados distintos' END
+        AS ruta_tipo
+FROM base_pedido b
+JOIN reviews r                    ON r.order_id = b.order_id
+LEFT JOIN order_items_agg oia     ON oia.order_id = b.order_id
+LEFT JOIN category_por_pedido cp  ON cp.order_id = b.order_id
+LEFT JOIN seller_por_pedido sp    ON sp.order_id = b.order_id
+LEFT JOIN pagos_por_pedido pp     ON pp.order_id = b.order_id
+LEFT JOIN tipo_pago_principal tpp ON tpp.order_id = b.order_id
+WHERE b.order_status = 'delivered';
+*/
