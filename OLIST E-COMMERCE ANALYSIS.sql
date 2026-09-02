@@ -1,10 +1,10 @@
 -- =====================================================================
--- OLIST BRAZILIAN E-COMMERCE — ¿Qué factores se asocian a malas reviews?
+-- OLIST BRAZILIAN E-COMMERCE — What factors are associated with poor reviews?
 -- =====================================================================
 /* Dataset: https://www.kaggle.com/datasets/olistbr/brazilian-ecommerce
-   Dialecto: SQLite 3.25+ (usa funciones de ventana y julianday())
+   Dialect: SQLite 3.25+ (uses window functions and julianday())
 
-   Tablas usadas (nombres tal como fueron importados en este proyecto):
+   Tables used (names as imported in this project):
      customers    -> olist_customers_dataset.csv
      orders       -> olist_orders_dataset.csv
      items        -> olist_order_items_dataset.csv
@@ -437,22 +437,22 @@ WHERE s.seller_id IS NULL;
 -- ============================================================
 
 /*
-   Notas de compatibilidad SQLite:
-     - No existe EXTRACT(); las diferencias de fecha se calculan con
-       julianday(fecha_a) - julianday(fecha_b), que devuelve días
-       (con decimales) directamente.
-     - Los campos de fecha del CSV deben quedar como TEXT en formato
-       'YYYY-MM-DD HH:MM:SS' para que julianday() los interprete bien.
-     - CAST(... AS REAL) se usa para evitar división entera.
+   SQLite compatibility notes:
+     - EXTRACT() is not available; date differences are calculated
+       with julianday(date_a) - julianday(date_b), which returns
+       days (with decimals) directly.
+     - Date fields from the CSV must remain as TEXT in the format
+       'YYYY-MM-DD HH:MM:SS' for julianday() to interpret them correctly.
+     - CAST(... AS REAL) is used to avoid integer division.
 
-   Definición de trabajo:
-     "Mala review" = review_score IN (1, 2)
-     "Buena review" = review_score IN (4, 5)
+   Working definitions:
+     "Poor review" = review_score IN (1, 2)
+     "Good review" = review_score IN (4, 5)
    ===================================================================== */
 
 /* ---------------------------------------------------------------------
-   3.1- TIEMPO DE ENTREGA vs REVIEW SCORE
-   Hipótesis: pedidos que tardan más en llegar reciben peores reviews.
+   3.1- DELIVERY TIME vs REVIEW SCORE
+   Hypothesis: orders that take longer to arrive receive worse reviews.
 --------------------------------------------------------------------- */
 WITH orders_delivery AS (
     SELECT
@@ -460,7 +460,7 @@ WITH orders_delivery AS (
         julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp)
             AS delivery_days,
         julianday(o.order_delivered_customer_date) - julianday(o.order_estimated_delivery_date)
-            AS delay_days   -- positivo = llegó tarde respecto a lo estimado
+            AS delay_days   -- positive = arrived later than estimated
     FROM orders o
     WHERE o.order_status = 'delivered'
       AND o.order_delivered_customer_date IS NOT NULL
@@ -476,15 +476,15 @@ GROUP BY r.review_score
 ORDER BY r.review_score;
 
 /* ---------------------------------------------------------------------
-   3.1.2 LLEGÓ TARDE vs A TIEMPO — comparación directa
+   3.1.2 LATE vs ON TIME — direct comparison
 --------------------------------------------------------------------- */
 WITH orders_delivery AS (
     SELECT
         o.order_id,
         CASE
             WHEN julianday(o.order_delivered_customer_date) > julianday(o.order_estimated_delivery_date)
-                THEN 'Entrega tardía'
-            ELSE 'Entrega a tiempo'
+                THEN 'Late delivery'
+            ELSE 'On-time delivery'
         END AS delivery_status
     FROM orders o
     WHERE o.order_status = 'delivered'
@@ -494,7 +494,7 @@ SELECT
     d.delivery_status,
     ROUND(AVG(r.review_score), 2) AS avg_review_score,
     ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
-        AS pct_malas_reviews,
+        AS pct_poor_reviews,
     COUNT(*) AS n_orders
 FROM orders_delivery d
 JOIN reviews r ON r.order_id = d.order_id
@@ -502,7 +502,7 @@ GROUP BY d.delivery_status
 ORDER BY avg_review_score;
 
 /* ---------------------------------------------------------------------
-   3.2 - COSTO DE FLETE (freight_value) vs REVIEW SCORE
+   3.2 - FREIGHT COST (freight_value) vs REVIEW SCORE
 --------------------------------------------------------------------- */
 WITH order_freight AS (
     SELECT
@@ -526,14 +526,14 @@ GROUP BY r.review_score
 ORDER BY r.review_score;
 
 /* ---------------------------------------------------------------------
-   3.3 - CATEGORÍA DE PRODUCTO vs REVIEW SCORE
-   Top categorías con peor score promedio (mínimo 50 reviews).
+   3.3 - PRODUCT CATEGORY vs REVIEW SCORE
+   Top categories with the lowest average score (minimum 50 reviews).
 --------------------------------------------------------------------- */
 SELECT
     COALESCE(t.product_category_name_english, p.product_category_name) AS category,
     ROUND(AVG(r.review_score), 2) AS avg_review_score,
     ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
-        AS pct_malas_reviews,
+        AS pct_poor_reviews,
     COUNT(*) AS n_reviews
 FROM items oi
 JOIN products p
@@ -548,7 +548,7 @@ ORDER BY avg_review_score ASC
 LIMIT 15;
 
 /* ---------------------------------------------------------------------
-   3.4 - MÉTODO DE PAGO Y CUOTAS vs REVIEW SCORE
+   3.4 - PAYMENT METHOD AND INSTALLMENTS vs REVIEW SCORE
 --------------------------------------------------------------------- */
 SELECT
     pay.payment_type,
@@ -560,13 +560,13 @@ JOIN reviews r ON r.order_id = pay.order_id
 GROUP BY pay.payment_type
 ORDER BY avg_review_score;
 
--- Cuotas agrupadas en rangos
+-- Installments grouped into ranges
 SELECT
     CASE
-        WHEN payment_installments = 1 THEN '1 (contado)'
-        WHEN payment_installments BETWEEN 2 AND 4 THEN '2-4 cuotas'
-        WHEN payment_installments BETWEEN 5 AND 8 THEN '5-8 cuotas'
-        ELSE '9+ cuotas'
+        WHEN payment_installments = 1 THEN '1 (paid in full)'
+        WHEN payment_installments BETWEEN 2 AND 4 THEN '2-4 installments'
+        WHEN payment_installments BETWEEN 5 AND 8 THEN '5-8 installments'
+        ELSE '9+ installments'
     END AS installment_bucket,
     ROUND(AVG(r.review_score), 2) AS avg_review_score,
     COUNT(*)                      AS n_orders
@@ -576,7 +576,7 @@ GROUP BY installment_bucket
 ORDER BY avg_review_score;
 
 /* ---------------------------------------------------------------------
-   3.5 - VALOR DEL PEDIDO vs REVIEW SCORE
+   3.5 - ORDER VALUE vs REVIEW SCORE
 --------------------------------------------------------------------- */
 WITH order_value AS (
     SELECT
@@ -600,15 +600,15 @@ GROUP BY price_bucket
 ORDER BY avg_review_score;
 
 /* ---------------------------------------------------------------------
-   3.6 - DESEMPEÑO POR VENDEDOR (seller)
-   Vendedores con más de 20 ventas, ordenados por peor score promedio.
+   3.6 - SELLER PERFORMANCE
+   Sellers with more than 20 sales, ordered by lowest average score.
 --------------------------------------------------------------------- */
 SELECT
     oi.seller_id,
     COUNT(DISTINCT oi.order_id)   AS n_orders,
     ROUND(AVG(r.review_score), 2) AS avg_review_score,
     ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
-        AS pct_malas_reviews
+        AS pct_poor_reviews
 FROM items oi
 JOIN reviews r ON r.order_id = oi.order_id
 GROUP BY oi.seller_id
@@ -617,14 +617,14 @@ ORDER BY avg_review_score ASC
 LIMIT 20;
 
 /* ---------------------------------------------------------------------
-   3.7 - DISTANCIA GEOGRÁFICA (estado comprador != estado vendedor)
+   3.7 - GEOGRAPHICAL DISTANCE (customer state != seller state)
 --------------------------------------------------------------------- */
 WITH order_states AS (
     SELECT
         o.order_id,
         CASE WHEN c.customer_state = s.seller_state
-             THEN 'Mismo estado'
-             ELSE 'Estados distintos'
+             THEN 'Same state'
+             ELSE 'Different states'
         END AS route_type
     FROM orders o
     JOIN customers c ON c.customer_id = o.customer_id
@@ -641,36 +641,35 @@ GROUP BY os.route_type
 ORDER BY avg_review_score;
 
 /* ---------------------------------------------------------------------
-   3.8 - % DE ENTREGAS TARDÍAS SOBRE EL TOTAL
-   Base: todos los pedidos con status 'delivered' y fecha de entrega
-   registrada.
+   3.8 - % OF LATE DELIVERIES OUT OF TOTAL DELIVERIES
+   Base: all orders with status 'delivered' and a recorded delivery date.
 --------------------------------------------------------------------- */
 SELECT
-    COUNT(*) AS total_pedidos_entregados,
+    COUNT(*) AS total_delivered_orders,
     SUM(CASE
             WHEN julianday(order_delivered_customer_date) > julianday(order_estimated_delivery_date)
             THEN 1 ELSE 0
-        END) AS pedidos_tardios,
+        END) AS late_orders,
     ROUND(100.0 * SUM(CASE
             WHEN julianday(order_delivered_customer_date) > julianday(order_estimated_delivery_date)
             THEN 1 ELSE 0
-        END) / COUNT(*), 2) AS pct_entregas_tardias
+        END) / COUNT(*), 2) AS pct_late_deliveries
 FROM orders
 WHERE order_status = 'delivered'
   AND order_delivered_customer_date IS NOT NULL
   AND order_estimated_delivery_date IS NOT NULL;
 
 /* ---------------------------------------------------------------------
-   3.9 - % DE MALAS RESEÑAS (score 1 o 2) POR CATEGORÍA DE PRODUCTO
-   Mínimo 30 reseñas por categoría para evitar ruido de categorías
-   con pocos casos.
+   3.9 - % OF POOR REVIEWS (score 1 or 2) BY PRODUCT CATEGORY
+   Minimum 30 reviews per category to avoid noise from categories
+   with few observations.
 --------------------------------------------------------------------- */
 SELECT
-    COALESCE(t.product_category_name_english, p.product_category_name) AS categoria,
+    COALESCE(t.product_category_name_english, p.product_category_name) AS category,
     COUNT(*) AS total_reviews,
-    SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) AS malas_reviews,
+    SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) AS poor_reviews,
     ROUND(100.0 * SUM(CASE WHEN r.review_score <= 2 THEN 1 ELSE 0 END) / COUNT(*), 2)
-        AS pct_malas_reviews
+        AS pct_poor_reviews
 FROM items i
 JOIN products p
     ON p.product_id = i.product_id
@@ -678,22 +677,21 @@ LEFT JOIN product_category_name_translation t
     ON t.product_category_name = p.product_category_name
 JOIN reviews r
     ON r.order_id = i.order_id
-GROUP BY categoria
+GROUP BY category
 HAVING COUNT(*) >= 30
-ORDER BY pct_malas_reviews DESC;
+ORDER BY pct_poor_reviews DESC;
 
 /* ---------------------------------------------------------------------
-   3.10 - DE LAS RESEÑAS NEGATIVAS (score 1 o 2), ¿QUÉ % TUVO UN TIEMPO DE
-   ENTREGA MAYOR AL TIEMPO DE ENTREGA PROMEDIO?
-   Definición: "tiempo de entrega" = días entre la compra
-   (order_purchase_timestamp) y la entrega real al cliente
-   (order_delivered_customer_date). NO es contra la fecha estimada,
-   es el tiempo real que tardó en llegar.
-   El promedio se calcula sobre TODOS los pedidos entregados (no solo
-   los negativos), para tener un benchmark general contra el cual
-   comparar.
+   3.10 - OF THE NEGATIVE REVIEWS (score 1 or 2), WHAT % HAD A DELIVERY TIME
+   LONGER THAN THE AVERAGE DELIVERY TIME?
+   Definition: "delivery time" = days between purchase
+   (order_purchase_timestamp) and actual customer delivery
+   (order_delivered_customer_date). This is NOT compared with the
+   estimated delivery date; it is the actual time taken to arrive.
+   The average is calculated over ALL delivered orders (not only
+   negative reviews), to provide a general benchmark for comparison.
 --------------------------------------------------------------------- */
-WITH tiempos_entrega AS (
+WITH delivery_times AS (
     SELECT
         o.order_id,
         julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp)
@@ -702,24 +700,24 @@ WITH tiempos_entrega AS (
     WHERE o.order_status = 'delivered'
       AND o.order_delivered_customer_date IS NOT NULL
 ),
-promedio_general AS (
-    SELECT AVG(delivery_days) AS avg_delivery_days FROM tiempos_entrega
+overall_average AS (
+    SELECT AVG(delivery_days) AS avg_delivery_days FROM delivery_times
 )
 SELECT
-    (SELECT ROUND(avg_delivery_days, 2) FROM promedio_general) AS tiempo_entrega_promedio_dias,
-    COUNT(*) AS total_reseñas_negativas,
-    SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
-        AS negativas_con_demora_mayor_al_promedio,
-    ROUND(100.0 * SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
-          / COUNT(*), 2) AS pct_negativas_con_demora_mayor
-FROM tiempos_entrega te
-JOIN reviews r ON r.order_id = te.order_id
+    (SELECT ROUND(avg_delivery_days, 2) FROM overall_average) AS avg_delivery_time_days,
+    COUNT(*) AS total_negative_reviews,
+    SUM(CASE WHEN dt.delivery_days > (SELECT avg_delivery_days FROM overall_average) THEN 1 ELSE 0 END)
+        AS negative_reviews_above_average,
+    ROUND(100.0 * SUM(CASE WHEN dt.delivery_days > (SELECT avg_delivery_days FROM overall_average) THEN 1 ELSE 0 END)
+          / COUNT(*), 2) AS pct_negative_reviews_above_average
+FROM delivery_times dt
+JOIN reviews r ON r.order_id = dt.order_id
 WHERE r.review_score <= 2;
  
--- 3.10.b) Mismo cálculo pero desagregado por cada score (1 a 5), para
--- ver la tendencia completa y no solo el bloque "negativas".
+-- 3.10.b) Same calculation broken down by each score (1 to 5), to
+-- show the complete trend rather than only the "negative" group.
 
-WITH tiempos_entrega AS (
+WITH delivery_times AS (
     SELECT
         o.order_id,
         julianday(o.order_delivered_customer_date) - julianday(o.order_purchase_timestamp)
@@ -728,29 +726,29 @@ WITH tiempos_entrega AS (
     WHERE o.order_status = 'delivered'
       AND o.order_delivered_customer_date IS NOT NULL
 ),
-promedio_general AS (
-    SELECT AVG(delivery_days) AS avg_delivery_days FROM tiempos_entrega
+overall_average AS (
+    SELECT AVG(delivery_days) AS avg_delivery_days FROM delivery_times
 )
 SELECT
     r.review_score,
-    COUNT(*) AS total_pedidos,
-    ROUND(AVG(te.delivery_days), 2) AS tiempo_entrega_promedio_del_score,
-    SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
-        AS pedidos_sobre_el_promedio,
-    ROUND(100.0 * SUM(CASE WHEN te.delivery_days > (SELECT avg_delivery_days FROM promedio_general) THEN 1 ELSE 0 END)
-          / COUNT(*), 2) AS pct_sobre_el_promedio
-FROM tiempos_entrega te
-JOIN reviews r ON r.order_id = te.order_id
+    COUNT(*) AS total_orders,
+    ROUND(AVG(dt.delivery_days), 2) AS avg_delivery_time_for_score,
+    SUM(CASE WHEN dt.delivery_days > (SELECT avg_delivery_days FROM overall_average) THEN 1 ELSE 0 END)
+        AS orders_above_average,
+    ROUND(100.0 * SUM(CASE WHEN dt.delivery_days > (SELECT avg_delivery_days FROM overall_average) THEN 1 ELSE 0 END)
+          / COUNT(*), 2) AS pct_above_average
+FROM delivery_times dt
+JOIN reviews r ON r.order_id = dt.order_id
 GROUP BY r.review_score
 ORDER BY r.review_score;
 
 /* ---------------------------------------------------------------------
-   3.11 - DEL TOTAL DE ENTREGAS TARDÍAS (fecha real > fecha estimada),
-   ¿QUÉ % LE CORRESPONDE A CADA CALIFICACIÓN (1 a 5 estrellas)?
-   Acá la base 100% es el total de entregas tardías, y repartimos
-   ese 100% entre los distintos review_score.
+   3.11 - OF ALL LATE DELIVERIES (actual date > estimated date),
+   WHAT % CORRESPONDS TO EACH RATING (1 to 5 stars)?
+   Here, the 100% base is the total number of late deliveries,
+   and that 100% is distributed among the different review scores.
 --------------------------------------------------------------------- */
-WITH entregas_tardias AS (
+WITH late_deliveries AS (
     SELECT o.order_id
     FROM orders o
     WHERE o.order_status = 'delivered'
@@ -760,11 +758,11 @@ WITH entregas_tardias AS (
 )
 SELECT
     r.review_score,
-    COUNT(*) AS cantidad_entregas_tardias,
-    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM entregas_tardias), 2)
-        AS pct_sobre_total_entregas_tardias
-FROM entregas_tardias et
-JOIN reviews r ON r.order_id = et.order_id
+    COUNT(*) AS late_delivery_count,
+    ROUND(100.0 * COUNT(*) / (SELECT COUNT(*) FROM late_deliveries), 2)
+        AS pct_of_total_late_deliveries
+FROM late_deliveries ld
+JOIN reviews r ON r.order_id = ld.order_id
 GROUP BY r.review_score
 ORDER BY r.review_score;
 
@@ -861,15 +859,14 @@ ORDER BY r.review_score;
 ------------------------------------------------------------------------------------------------------------------------------------------
 /* Optional:
 /* =====================================================================
-   EXPORT PARA POWER BI Y PYTHON— Olist (SQLite)
-   Una fila por pedido, con todas las dimensiones/métricas necesarias
-   para armar un dashboard o hacer análisis más detallados: fechas, 
-   entrega, precio, flete, categoría principal, pago, geografía y 
-   review score.
+   POWER BI AND PYTHON EXPORT — Olist (SQLite)
+   One row per order, with all dimensions/metrics required to build
+   a dashboard or perform more detailed analysis: dates, delivery,
+   price, freight, main category, payment, geography, and review score.
    ===================================================================== */
 
 WITH order_items_agg AS (
-    /* Métricas agregadas del pedido a nivel ítem */
+    /* Aggregated order-level metrics */
     SELECT
         order_id,
         COUNT(*)                                                          AS n_items,
@@ -881,9 +878,9 @@ WITH order_items_agg AS (
     GROUP BY order_id
 ),
 main_item AS (
-    /* El ítem de mayor precio del pedido, usado como "producto principal"
-       para asignar una categoría y un vendedor de referencia cuando el
-       pedido tiene varios ítems distintos */
+    /* The highest-priced item in the order, used as the "main product"
+       to assign a category and reference seller when the order contains
+       multiple different items */
     SELECT order_id, product_id, seller_id
     FROM (
         SELECT
@@ -912,9 +909,9 @@ seller_por_pedido AS (
     JOIN sellers s ON s.seller_id = mi.seller_id
 ),
 pagos_por_pedido AS (
-    /* Un pedido puede tener varias filas de pago (ej. tarjeta + voucher).
-       Nos quedamos con el tipo de pago de mayor monto como "principal",
-       y sumamos el total pagado y el máximo de cuotas usado. */
+    /* An order can have multiple payment rows (e.g. credit card + voucher).
+       We keep the payment type with the highest amount as the "main" payment,
+       and calculate the total amount paid and maximum number of installments used. */
     SELECT
         order_id,
         SUM(payment_value)      AS total_payment_value,
@@ -976,8 +973,8 @@ SELECT
     cp.main_category,
     b.customer_state,
     sp.main_seller_state,
-    CASE WHEN b.customer_state = sp.main_seller_state THEN 'Mismo estado' ELSE 'Estados distintos' END
-        AS ruta_tipo
+    CASE WHEN b.customer_state = sp.main_seller_state THEN 'Same state' ELSE 'Different states' END
+        AS route_type
 FROM base_pedido b
 JOIN reviews r                    ON r.order_id = b.order_id
 LEFT JOIN order_items_agg oia     ON oia.order_id = b.order_id
